@@ -1,6 +1,6 @@
 {
   "name": "ai-context-lint",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Analyze repository context cost and noise for AI coding agents.",
   "type": "module",
   "bin": {

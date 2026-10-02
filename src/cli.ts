@@ -19,7 +19,7 @@ program
   .description(
     "Analyze repository context cost and noise for AI coding agents."
   )
-  .version("0.1.0")
+  .version("0.1.1")
   .argument("[path]", "repository path", ".")
   .option("--json", "output JSON")
   .option("--files <files...>", "analyze context for specific files")
