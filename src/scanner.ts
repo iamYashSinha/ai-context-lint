@@ -3,6 +3,7 @@ import path from "node:path";
 import fg from "fast-glob";
 
 import type { FileStat } from "./types.js";
+import { estimateTokens } from "./tokenizer.js";
 
 const CODE_EXTENSIONS = new Set([
   ".js",
@@ -48,11 +49,7 @@ const IGNORED_DIRECTORIES = [
   "**/target/**",
 ];
 
-function estimateTokens(content: string): number {
-  // Rough approximation for V0.1.
-  // We'll replace this with a real tokenizer later.
-  return Math.ceil(content.length / 4);
-}
+
 
 function isGeneratedFile(filePath: string, content: string): boolean {
     const name = path.basename(filePath).toLowerCase();
