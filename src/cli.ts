@@ -22,6 +22,8 @@ program
   .version("0.1.1")
   .argument("[path]", "repository path", ".")
   .option("--json", "output JSON")
+  .option("--ci", "fail if configured thresholds are exceeded")
+  .option("--max-tokens <number>", "maximum allowed token count")
   .option("--files <files...>", "analyze context for specific files")
   .action(async (inputPath: string, options) => {
     const root = path.resolve(inputPath);
@@ -77,6 +79,24 @@ program
       dependencyGraph,
       combinedContext,
     };
+
+    const maxTokens = options.maxTokens ? Number(options.maxTokens) : undefined;
+
+    if (options.ci && maxTokens !== undefined) { 
+      if (
+        !Number.isFinite(maxTokens) || maxTokens < 0
+      ) { 
+        console.error("--max-tokens must be a non-negative number");
+        process.exit(1);
+      }
+
+      if (report.totalEstimatedTokens > maxTokens) {
+        console.error(
+          `CI check failed: ${report.totalEstimatedTokens} tokens exceeds the maximum of ${maxTokens} tokens.`
+        );
+        process.exit(1);
+      }
+    }
 
     if (options.json) {
       console.log(JSON.stringify(report, null, 2));
