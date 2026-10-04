@@ -2,6 +2,7 @@
 
 import path from "node:path";
 import process from "node:process";
+import fs from "node:fs";
 
 import { Command } from "commander";
 
@@ -12,6 +13,10 @@ import type { Report } from "./types.js";
 import { buildDependencyGraph } from "./dependencies.js";
 import { analyzeContext, analyzeCombinedContext } from "./context.js";
 
+const packageJson = JSON.parse(
+  fs.readFileSync(new URL("../package.json", import.meta.url), "utf8")
+);
+
 const program = new Command();
 
 program
@@ -19,7 +24,7 @@ program
   .description(
     "Analyze repository context cost and noise for AI coding agents."
   )
-  .version("0.1.1")
+  .version(packageJson.version)
   .argument("[path]", "repository path", ".")
   .option("--json", "output JSON")
   .option("--ci", "fail if configured thresholds are exceeded")
