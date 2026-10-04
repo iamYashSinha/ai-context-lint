@@ -1,7 +1,7 @@
 {
   "name": "ai-context-lint",
   "version": "0.2.1",
-  "description": "Analyze repository context cost and noise for AI coding agents.",
+  "description": "Analyze codebase context, token usage, and dependency overhead for AI coding agents.",
   "type": "module",
   "bin": {
     "ai-context-lint": "dist/cli.js"
