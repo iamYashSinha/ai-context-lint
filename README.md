@@ -4,7 +4,7 @@
 [![CI](https://github.com/iamYashSinha/ai-context-lint/actions/workflows/ci.yml/badge.svg)](https://github.com/iamYashSinha/ai-context-lint/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
-Analyze repository context cost and noise for AI coding agents.
+Analyze codebase context, token usage, and dependency overhead for AI coding agents.
 
 AI coding agents do not only consume the file you are editing. They often also need related files through imports and dependencies.
 
