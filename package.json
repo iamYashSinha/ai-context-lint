@@ -34,7 +34,7 @@
   },
   "homepage": "https://github.com/iamYashSinha/ai-context-lint#readme",
   "dependencies": {
-    "commander": "^14.0.3",
+    "commander": "^15.0.0",
     "fast-glob": "^3.3.3",
     "gpt-tokenizer": "^4.0.0"
   },
