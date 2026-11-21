@@ -29,7 +29,16 @@ export async function compileContext(task: string, root: string, files: FileStat
   // Strong task matches become roots; weak source-only matches do not pull in arbitrary callers.
   const roots = candidates.filter(candidate => candidate.score >= 10).map(candidate => candidate.file);
   const selected = new Set<string>(roots);
-  // Interface changes may affect direct consumers; do not expand callers recursively.
+  const imports = new Map(graph.map(node => [node.file, node.imports]));
+  const stack = [...roots];
+  while (stack.length) {
+    const current = stack.pop()!;
+    for (const dependency of imports.get(current) ?? []) {
+      if (!selected.has(dependency)) { selected.add(dependency); stack.push(dependency); }
+    }
+  }
+  // A caller can already be a root dependency. Only callers added here are leaves.
+  const callerOnly = new Set<string>();
   const isInterfaceChange = terms.some(term => ["interface", "api", "contract", "type"].includes(term)) &&
     /\b(change|modify|rename|update|refactor|alter|extend|remove)\b/i.test(task);
   const candidateByFile = new Map(candidates.map(candidate => [candidate.file, candidate]));
@@ -40,21 +49,20 @@ export async function compileContext(task: string, root: string, files: FileStat
         const candidate = candidateByFile.get(caller);
         if (!candidate || selected.has(caller)) continue;
         selected.add(caller);
-        candidate.reasons.push(`direct caller of: ${rootFile} (interface change)`);
+        callerOnly.add(caller);
+        candidate.reasons.push(
+          `direct caller of: ${rootFile} (interface change)`,
+          "caller-only imports excluded",
+        );
       }
     }
   }
-  const imports = new Map(graph.map(node => [node.file, node.imports]));
-  const stack = [...roots];
-  while (stack.length) {
-    const current = stack.pop()!;
-    for (const dependency of imports.get(current) ?? []) {
-      if (!selected.has(dependency)) { selected.add(dependency); stack.push(dependency); }
-    }
-  }
   const selectedFiles = files.map(file => file.path).filter(file => selected.has(file));
+  const contextGraph = callerOnly.size
+    ? graph.map(node => callerOnly.has(node.file) ? { ...node, imports: [] } : node)
+    : graph;
   return {
     task, candidates, selectedFiles,
-    context: analyzeCombinedContext(selectedFiles, files, graph),
+    context: analyzeCombinedContext(selectedFiles, files, contextGraph),
   };
 }
