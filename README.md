@@ -93,7 +93,22 @@ callers are not automatically included. `--task` cannot be combined with `--file
 **Experimental limitations:** Keyword matching cannot determine actual business impact,
 and including the complete transitive import closure can over-select dependencies.
 The result is a heuristic context estimate, not a guaranteed minimal or sufficient context.
-Future work will refine symbol-level relevance and task-specific dependency selection.
+
+For interface-change tasks, task-matching direct callers can contribute one additional import hop.
+The compiler checks referenced named bindings from local imports already present in the dependency
+graph. It matches imported symbol names against task keywords, preferring keywords outside the
+strongly matched file paths when available. Additional modules are counted once across callers.
+Dependencies already reachable from strong matches retain their full transitive context.
+
+This is lexical evidence and cannot establish which symbols affect the changed contract.
+Comments, strings, and shadowing can produce false positives. Default and namespace bindings,
+dynamic imports, path aliases, and dependencies beyond that extra hop can be missed.
+
+To benchmark, run the built CLI against an unchanged checkout of `fca41e4` using
+`--task "Change the context compiler result interface" --json`. Both the baseline and the
+updated compiler returned the same five files and 3,839 unique estimated tokens on that snapshot.
+The regression fixture separately verifies that relevant imports can enter the context and
+that a shared import counts only once.
 
 ## Example
 
