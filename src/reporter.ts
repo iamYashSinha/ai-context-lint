@@ -1,12 +1,13 @@
 import path from "node:path";
 
-import type { Report, DependencyInfo } from "./types.js";
+import type { Report, DependencyInfo, CombinedContextAnalysis } from "./types.js";
 
 
 function printDependencyTree(
     file: string,
     dependencies: DependencyInfo[],
-    prefix = ""
+    prefix = "",
+    ancestors = new Set<string>()
   ): void {
     const node = dependencies.find(
       (dependency) => dependency.file === file
@@ -16,6 +17,7 @@ function printDependencyTree(
       return;
     }
   
+    ancestors.add(file);
     for (let i = 0; i < node.imports.length; i++) {
       const dependency = node.imports[i];
       const isLast = i === node.imports.length - 1;
@@ -24,12 +26,16 @@ function printDependencyTree(
         `${prefix}${isLast ? "└──" : "├──"} ${dependency}`
       );
   
-      printDependencyTree(
-        dependency,
-        dependencies,
-        `${prefix}${isLast ? "    " : "│   "}`
-      );
+      if (!ancestors.has(dependency)) {
+        printDependencyTree(
+          dependency,
+          dependencies,
+          `${prefix}${isLast ? "    " : "│   "}`,
+          ancestors,
+        );
+      }
     }
+    ancestors.delete(file);
 }
 
 export function printReport(report: Report): void {
@@ -44,19 +50,23 @@ export function printReport(report: Report): void {
     for (const candidate of report.contextCompiler.candidates) {
       console.log(`  ${candidate.score}  ${candidate.file} (${candidate.reasons.join(", ")})`);
     }
-    console.log("Selected files");
-    for (const file of report.contextCompiler.selectedFiles) console.log(`  ${file}`);
-    const total = report.contextCompiler.context.totalTokens;
-    console.log(`Unique context:  ${total.toLocaleString()} tokens`);
     console.log("Selection is heuristic; relevance is not guaranteed.");
+    if (report.combinedContext) printCombinedContext(report.combinedContext, "Task-specific context", true);
+    console.log("");
+    console.log("Repository dependency diagnostics for task-selected files");
+    console.log("Per-file totals and hotspots follow the full repository import graph.");
   }
-  console.log(`Files analyzed:  ${report.files.length}`);
+  console.log(`${report.contextCompiler ? "Task-selected files:" : "Files analyzed: "} ${report.files.length}`);
   const isFocusedReport =
   report.contextAnalysis.length !== report.files.length;
-  console.log(
-    `${isFocusedReport ? "Selected tokens:" : "Estimated tokens:"} ${(report.combinedContext?.totalTokens ?? report.totalEstimatedTokens).toLocaleString()}`
-  );
-  
+  if (report.contextCompiler) {
+    console.log(`Task-selected own tokens: ${report.totalEstimatedTokens.toLocaleString()}`);
+  } else {
+    const tokenLabel = isFocusedReport ? "Selected tokens:" : "Estimated tokens:";
+    const tokens = report.combinedContext?.totalTokens ?? report.totalEstimatedTokens;
+    console.log(`${tokenLabel} ${tokens.toLocaleString()}`);
+  }
+
   console.log(
     `Source size:      ${(report.totalBytes / 1024).toFixed(1)} KB`
   );
@@ -96,7 +106,7 @@ export function printReport(report: Report): void {
   }
 
   console.log(
-    isFocusedReport
+    report.contextCompiler || isFocusedReport
       ? "Selected files"
       : "Top files by estimated context"
   );
@@ -142,33 +152,23 @@ for (const context of report.contextAnalysis) {
   }
 }
 
-if (report.combinedContext) {
-    console.log("");
-  
-    console.log("Selected Context");
-  
-    console.log("────────────────────────────────────");
-  
-    console.log(
-      `Selected files:    ${report.combinedContext.selectedFiles.length}`
-    );
-  
-    console.log(
-      `Own tokens:        ${report.combinedContext.ownTokens.toLocaleString()}`
-    );
-  
-    console.log(
-      `Dependency tokens: ${report.combinedContext.dependencyTokens.toLocaleString()}`
-    );
-  
-    console.log(
-      `Unique context:    ${report.combinedContext.totalTokens.toLocaleString()}`
-    );
-  
-    console.log(
-      `Context files:     ${report.combinedContext.contextFiles.length}`
-    );
+  if (report.combinedContext && !report.contextCompiler) {
+    printCombinedContext(report.combinedContext, "Selected Context");
   }
 
   console.log("");
+}
+
+function printCombinedContext(context: CombinedContextAnalysis, title: string, listFiles = false): void {
+  console.log("");
+  console.log(title);
+  console.log("────────────────────────────────────");
+  console.log(`Selected files:    ${context.selectedFiles.length}`);
+  console.log(`Own tokens:        ${context.ownTokens.toLocaleString()}`);
+  console.log(`Dependency tokens: ${context.dependencyTokens.toLocaleString()}`);
+  console.log(`Unique context:    ${context.totalTokens.toLocaleString()}`);
+  console.log(`Context files:     ${context.contextFiles.length}`);
+  if (listFiles) {
+    for (const file of context.contextFiles) console.log(`  ${file}`);
+  }
 }

@@ -45,6 +45,13 @@ program
     const report: Report = {
       root, files, totalBytes, totalEstimatedTokens, issues,
       contextAnalysis, dependencyGraph, combinedContext, contextCompiler,
+      scopes: contextCompiler && {
+        files: "task-selection",
+        combinedContext: "task-context",
+        issues: "task-selection-with-repository-dependencies",
+        contextAnalysis: "task-selection-with-repository-dependencies",
+        dependencyGraph: "repository",
+      },
     };
     const maxTokens = options.maxTokens === undefined ? undefined : Number(options.maxTokens);
     if (options.ci && maxTokens !== undefined) {

@@ -55,4 +55,11 @@ export interface Report {
   dependencyGraph: DependencyInfo[];
   combinedContext?: CombinedContextAnalysis;
   contextCompiler?: ContextCompilerResult;
+  scopes?: {
+    files: "task-selection";
+    combinedContext: "task-context";
+    issues: "task-selection-with-repository-dependencies";
+    contextAnalysis: "task-selection-with-repository-dependencies";
+    dependencyGraph: "repository";
+  };
 }
