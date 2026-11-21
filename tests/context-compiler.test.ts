@@ -33,6 +33,36 @@ describe("task-aware context compiler", () => {
       await rm(root, {recursive: true, force: true});
     }
   });
+  it("includes relevant direct callers for interface-change tasks, but not unrelated callers", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "context-interface-"));
+    try {
+      const names = ["PaymentClient.ts", "PaymentController.ts", "UnrelatedController.ts", "RetryPolicy.ts"];
+      const contents = [
+        "export interface PaymentClient { retryPayment(): void }",
+        "import type { PaymentClient } from './PaymentClient.js'; export function handle(client: PaymentClient) { client.retryPayment(); }",
+        "export class UnrelatedController {}",
+        "export class RetryPolicy {}",
+      ];
+      await Promise.all(names.map((name, index) => writeFile(path.join(root, name), contents[index])));
+      const files: FileStat[] = names.map(name => ({
+        path: name, extension: ".ts", bytes: 100, estimatedTokens: 10, isGenerated: false,
+      }));
+      const graph: DependencyInfo[] = [
+        { file: names[0], imports: [names[3]], importedBy: [names[1], names[2]] },
+        { file: names[1], imports: [names[0]], importedBy: [] },
+        { file: names[2], imports: [names[0]], importedBy: [] },
+        { file: names[3], imports: [], importedBy: [names[0]] },
+      ];
+      const result = await compileContext("Change the payment client interface", root, files, graph);
+      expect(result.selectedFiles).toContain(names[0]);
+      expect(result.selectedFiles).toContain(names[1]);
+      expect(result.selectedFiles).toContain(names[3]);
+      expect(result.selectedFiles).not.toContain(names[2]);
+      expect(result.context.totalTokens).toBe(30);
+    } finally {
+      await rm(root, {recursive: true, force: true});
+    }
+  });
   it("rejects empty tasks", async () => {
     await expect(compileContext("the and", ".", [], [])).rejects.toThrow();
   });
