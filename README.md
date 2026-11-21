@@ -123,64 +123,40 @@ stderr and exits with a nonzero status. `--output` requires `--task` and can be
 used with `--json` to save Markdown while printing the usual JSON to stdout.
 With a CI token budget, the bundle is written only after the budget check passes.
 
-#### Task intent and scoring
+#### How task context is built
 
-The compiler recognizes interface changes first, then testing, bug-fix, refactor, and explanation
-keywords in that order. Other descriptions use keyword scoring alone. For the four non-interface
-intents, recognized intent words are dropped from the topic. Testing also drops common request
-words such as `write`, `related`, and `unit`.
+1. **Scan the repository.** Collect supported source paths and estimate tokens per file
+   with `o200k_base`. Build a graph from recognized local imports between scanned files.
+2. **Rank candidates.** Extract meaningful terms from the task. A term earns 5 points
+   for a filename or meaningful directory match and 1 point for a source match.
+   Task intent can adjust scores and which files qualify. A score of 10 is the starting-file cutoff.
+3. **Expand through imports.** Follow transitive imports from the starting files.
+   Interface-change tasks can also bring in matching direct callers and their
+   task-relevant local imports.
+4. **Count and export.** Count each path once. The Markdown bundle uses the
+   same file set as the task report and includes full source and available selection reasons.
 
-- Each topic term adds **5** for a filename-stem match or a meaningful directory match, with the
-  filename taking precedence. A source match adds **1** independently. Common structural and
-  fixture directories such as `src`, `fixtures`, and `test-repo` provide no directory points.
-  Test directories identify test files and provide no directory points.
-- Testing, bug-fix, refactor, and explanation add **5** to implementation files whose paths
-  match every topic term. Testing adds **10** to a conventional test file whose path matches
-  every topic term or which directly imports a qualifying implementation file. Conventional
-  tests include `*.test.*`, `*.spec.*`, `test_*`, `spec_*`, and files under `tests` or `__tests__`.
-- Generated files lose **5**, floored at zero. A score of **10** qualifies a file as a starting
-  point for dependency expansion. Testing starts from implementation and related tests.
-  Bug-fix, refactor, and explanation start from implementation. Import traversal from a
-  starting file follows the dependency graph as usual.
-- Candidates sort by descending score, then by path. Each score contribution has a reason.
+To see those steps on the bundled example, run this from a development checkout after
+`npm run build`:
 
-**Experimental limitations:** Keyword matching cannot determine actual business impact,
-and including the complete transitive import closure can over-select dependencies.
-Classification uses fixed keywords with fixed precedence, so mixed requests or keywords inside
-symbol names can be misclassified. Test discovery depends on naming conventions and recognized
-direct imports. A test related only through an indirect import or a source mention can be missed.
+```bash
+node dist/cli.js test-repo --task "Add retry support to the payment client"
+```
 
-For interface-change tasks, task-matching direct callers can contribute one additional import hop.
-The compiler checks referenced named bindings from local imports already present in the dependency
-graph. It matches imported symbol names against task keywords, preferring keywords outside the
-strongly matched file paths when available. Additional modules are counted once across callers.
-Dependencies already reachable from strong matches retain their full transitive context.
+| File | Score | What happened |
+| --- | ---: | --- |
+| `src/payment/PaymentClient.ts` | 12 | The filename and source match both `payment` and `client`, making it a starting file. |
+| `src/payment/RetryPolicy.ts` | 11 | The filename and source match `retry`, and the directory matches `payment`, making it a starting file. |
+| `src/http/HttpClient.ts` | 6 | The filename and source match `client`. The payment client's direct import brings it into the context. |
+| `src/payment/PaymentService.ts` | 8 | Its score falls below the cutoff. It calls the payment client and retry policy, so following their imports never reaches it. |
 
-This is lexical evidence and cannot establish which symbols affect the changed contract.
-Comments, strings, and shadowing can produce false positives. Default and namespace bindings,
-dynamic imports, path aliases, and dependencies beyond that extra hop can be missed.
+The **Task-specific context** section reports three files and **267 estimated source
+tokens**. The HTTP client's 191 tokens are already counted among the selected files,
+so the report shows zero additional dependency tokens for this task.
 
-To benchmark, run the built CLI against an unchanged checkout of `fca41e4` using
-`--task "Change the context compiler result interface" --json`. Both the baseline and the
-updated compiler returned the same five files and 3,839 unique estimated tokens on that snapshot.
-The regression fixture separately verifies that relevant imports can enter the context and
-that a shared import counts only once.
-
-#### Phase 6 CLI comparison
-
-Run each CLI against the same checkout of `6de0e71` with
-`node <build>/cli.js <checkout> --task "<prompt>" --json`. Compare
-`contextCompiler.candidates` and `contextCompiler.context`.
-
-| Prompt | Before | Phase 6 |
-| --- | --- | --- |
-| `write a payment related test` | 4 files, 338 unique tokens. `PaymentClient.ts` got 5 points from `path: test`. | The same 4 files and 338 tokens. `PaymentClient.ts` gets 5 intent points for matching the payment topic. `tests/cli.test.ts` falls from 7 to 1 and stays outside the context. |
-| `Change the context compiler result interface` | 7 files, 5,809 unique tokens. | The same files and token count, including the direct callers. Path reasons identify the filename. |
-| `Explain the payment service` | 4 files, 338 unique tokens. `PaymentService.ts` scores 12. | The same 4 files and 338 tokens. `PaymentService.ts` scores 17 and its imports still supply the supporting files. |
-
-The benchmark checkout has no payment-specific test file. The regression fixture adds a named
-payment spec, a smoke test that directly imports the payment implementation, and an unrelated CLI
-test with a payment mention. The compiler includes both related tests and excludes the CLI test.
+Selection is heuristic. Check the report and the bundle for files your task needs.
+The [engineering journal](docs/engineering-journal.md) explains the scoring rules,
+caller-expansion tradeoffs, Phase 6 comparisons, and Phase 7 export decisions.
 
 ## Example
 
@@ -278,6 +254,8 @@ report / CI
 | `tokenizer.ts`    | Calculates token counts using `o200k_base`                              |
 | `dependencies.ts` | Parses local imports into a directed dependency graph, including cycles |
 | `context.ts`      | Walks transitive dependencies and calculates combined context           |
+| `context-compiler.ts` | Scores task candidates and selects files through the import graph |
+| `context-bundle.ts` | Writes the compiled task context as Markdown |
 | `analyzer.ts`     | Emits issues for file size, generated noise, and context amplification  |
 | `reporter.ts`     | Produces the human-readable report                                      |
 | `cli.ts`          | Handles command-line options, JSON output, and CI checks                |
@@ -325,6 +303,7 @@ npm run dev -- ./test-repo
 * JSON output
 * CI mode with configurable token thresholds
 * GitHub Actions CI
+* Experimental task context compiler and Markdown export
 
 ### Next
 
@@ -333,7 +312,6 @@ npm run dev -- ./test-repo
 * Improved TypeScript path alias and module resolution
 * Richer guidance for reducing context amplification
 * Context Profiler
-* Context Compiler prototype
 
 ## The bigger idea
 
@@ -353,12 +331,9 @@ Context Profiler
 Understand what AI coding agents actually consume.
 ```
 
-Eventually:
-
-```text
-Context Compiler
-Construct the minimum useful context for a specific coding task.
-```
+The experimental context compiler already selects and exports task context.
+A future context profiler could help evaluate those selections against what coding
+agents consume on real tasks.
 
 The goal is to move from:
 
