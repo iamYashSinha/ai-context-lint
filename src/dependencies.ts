@@ -10,7 +10,7 @@ function isRelativeImport(importPath: string): boolean {
   return importPath.startsWith(".");
 }
 
-async function resolveImport(
+export async function resolveImport(
   currentFile: string,
   importPath: string,
   root: string
