@@ -77,6 +77,24 @@ You can run `ai-context-lint` directly in GitHub Actions:
   run: npx ai-context-lint . --ci --max-tokens 50000
 ```
 
+### Experimental Context Compiler
+
+Select likely task-relevant files using deterministic filename and source keyword signals:
+
+```bash
+ai-context-lint . --task "Add retry support to the payment client"
+ai-context-lint . --task "Add retry support to the payment client" --json
+```
+
+The compiler ranks candidate files, selects strong matches, and includes their transitive imports.
+It reports selected files, relevance reasons, and unique context tokens. Unrelated upstream
+callers are not automatically included. `--task` cannot be combined with `--files`.
+
+**Experimental limitations:** Keyword matching cannot determine actual business impact,
+and including the complete transitive import closure can over-select dependencies.
+The result is a heuristic context estimate, not a guaranteed minimal or sufficient context.
+Future work will refine symbol-level relevance and task-specific dependency selection.
+
 ## Example
 
 ```text
