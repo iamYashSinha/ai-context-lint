@@ -1,8 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { compileContext } from "../src/context-compiler.js";
+import { buildDependencyGraph } from "../src/dependencies.js";
 import type { FileStat, DependencyInfo } from "../src/types.js";
 
 describe("task-aware context compiler", () => {
@@ -83,6 +84,58 @@ describe("task-aware context compiler", () => {
       expect(withRootPath.context.totalTokens).toBe(60);
     } finally {
       await rm(root, {recursive: true, force: true});
+    }
+  });
+  it("scores payment implementation without treating a fixture root as a test signal", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "context-testing-"));
+    const client = "test-repo/src/payment/PaymentClient.ts";
+    const service = "test-repo/src/payment/PaymentService.ts";
+    const namedTest = "tests/PaymentService.spec.ts";
+    const importingTest = "tests/smoke.ts";
+    const unrelated = "tests/cli.test.ts";
+    const sources = {
+      [client]: "export class PaymentClient {}",
+      [service]: "import './PaymentClient.js'; export class PaymentService {}",
+      [namedTest]: "export const cases = [];",
+      [importingTest]: "import '../test-repo/src/payment/PaymentService.js';",
+      [unrelated]: "// Test the CLI with a payment-related input",
+    };
+    try {
+      const files: FileStat[] = Object.entries(sources).map(([name, source]) => ({
+        path: name, extension: ".ts", bytes: source.length, estimatedTokens: 10, isGenerated: false,
+      }));
+      for (const [name, source] of Object.entries(sources)) {
+        await mkdir(path.dirname(path.join(root, name)), { recursive: true });
+        await writeFile(path.join(root, name), source);
+      }
+      const graph = await buildDependencyGraph(root, files);
+      const task = "write a payment related test";
+      const result = await compileContext(task, root, files, graph);
+      expect(result.candidates.find(candidate => candidate.file === client)?.reasons)
+        .not.toContain("path: test");
+      expect(result.candidates.find(candidate => candidate.file === client)).toMatchObject({
+        score: 11,
+        reasons: [
+          "filename: payment", "source: payment", "intent: testing (implementation path matches topic)",
+        ],
+      });
+      expect(result.candidates.find(candidate => candidate.file === importingTest)?.reasons)
+        .toContain(`intent: testing (imports ${service})`);
+      expect(result.selectedFiles).toEqual([client, service, namedTest, importingTest]);
+      expect(result.context.totalTokens).toBe(40);
+
+      for (const [description, intent] of [
+        ["Fix the payment bug", "bug fix"],
+        ["Refactor payment", "refactor"],
+        ["Explain payment", "explanation"],
+      ]) {
+        const focused = await compileContext(description, root, files, graph);
+        expect(focused.selectedFiles).toEqual([client, service]);
+        expect(focused.candidates.find(candidate => candidate.file === client)?.reasons)
+          .toContain(`intent: ${intent} (implementation path matches topic)`);
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
     }
   });
   it("rejects empty tasks", async () => {
