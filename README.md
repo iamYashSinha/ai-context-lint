@@ -104,6 +104,13 @@ context. JSON exposes them as `issues`, `contextAnalysis`, and `dependencyGraph`
 ai-context-lint . --task "Add retry support to the payment client" --output context.md
 ```
 
+From a development checkout, the npm script writes to `context.md` by default.
+Pass `--output` after `--` to choose a different destination.
+
+```bash
+npm run context:bundle -- test-repo --task "Add retry support to the payment client"
+```
+
 The bundle includes the task and the full source of each file in
 `combinedContext.contextFiles`, once per path in sorted order. File headings show
 repository-relative paths, and the bundle identifies compiler-selected files,

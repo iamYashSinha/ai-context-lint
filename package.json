@@ -14,7 +14,8 @@
     "dev": "tsx src/cli.ts",
     "start": "node dist/cli.js",
     "test": "vitest run",
-    "dev:repo": "npm run dev -- ."
+    "dev:repo": "npm run dev -- .",
+    "context:bundle": "node --import tsx src/cli.ts --output context.md"
   },
   "keywords": [
     "ai",
