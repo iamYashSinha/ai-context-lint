@@ -1,6 +1,6 @@
 {
   "name": "ai-context-lint",
-  "version": "0.2.3",
+  "version": "0.3.0",
   "description": "Analyze codebase context, token usage, and dependency overhead for AI coding agents.",
   "type": "module",
   "bin": {
