@@ -4,105 +4,90 @@
 [![CI](https://github.com/iamYashSinha/ai-context-lint/actions/workflows/ci.yml/badge.svg)](https://github.com/iamYashSinha/ai-context-lint/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
-Analyze codebase context, token usage, and dependency overhead for AI coding agents.
+See which source files an AI coding agent may need, estimate their token cost, and
+export the context for a specific task.
 
-AI coding agents do not only consume the file you are editing. They often also need related files through imports and dependencies.
+## Quick start
 
-`ai-context-lint` analyzes repository dependencies, measures transitive context, and uses real tokenization to estimate how much source an AI coding agent may need to understand before working on a file.
-
-Think of it as ESLint for AI context.
-
-## Installation
-
-Run once with `npx`:
+Requires **Node.js 22.12 or later**. Scan a repository with:
 
 ```bash
 npx ai-context-lint .
 ```
 
-Or install globally:
+For regular use, run `npm install -g ai-context-lint`, then use `ai-context-lint` directly.
+Pass a directory path in place of `.` to scan another repository.
+
+## Build context for a task
 
 ```bash
-npm install -g ai-context-lint
-ai-context-lint .
+ai-context-lint . --task "Add retry support to the payment client"
 ```
 
-Requires **Node.js 22.12 or later**.
+The experimental Context Compiler scores files using task intent and matches in paths
+and source code. It starts from strong matches, follows their imports, and counts each
+file once. Interface-change tasks can also include relevant direct callers.
 
-## Usage
-
-Scan a repository:
+Try the payment retry example from a checkout after `npm ci` and `npm run build`:
 
 ```bash
-ai-context-lint .
-ai-context-lint ./path/to/repo
+node dist/cli.js test-repo --task "Add retry support to the payment client"
 ```
 
-Analyze selected files, including shared transitive dependencies counted only once:
+| File | Score | Why it enters the context |
+| --- | ---: | --- |
+| `PaymentClient.ts` | 12 | Its filename and source match `payment` and `client`. |
+| `RetryPolicy.ts` | 11 | Its filename and source match `retry`, and its directory matches `payment`. |
+| `HttpClient.ts` | 6 | `PaymentClient.ts` imports it, so it enters even below the starting-file cutoff of 10. |
+
+Look for **Task-specific context** in the report. This example includes **3 files and
+267 estimated source tokens**, including the HTTP client's 191 tokens. The separate
+repository diagnostics show what individual files can pull in through the full import graph.
+
+### Export to Markdown
 
 ```bash
-ai-context-lint . --files src/payment/PaymentService.ts src/payment/PaymentClient.ts
+ai-context-lint . --task "Add retry support to the payment client" --output context.md
 ```
 
-JSON output:
+The bundle contains the task, repository-relative paths, selection reasons, and full source.
+Choose a new file in an existing directory. Add `--json` to keep JSON on stdout while
+writing the bundle. `--task` and `--files` are mutually exclusive.
+
+From a development checkout, the shortcut below writes to `context.md` by default.
+Append `--output demo-context.md` to choose another file.
 
 ```bash
-ai-context-lint . --json
+npm run context:bundle -- test-repo --task "Add retry support to the payment client"
 ```
 
-### CI mode
+## Inspect repository context
 
-Use CI mode to enforce a maximum context budget:
+| To… | Run |
+| --- | --- |
+| Scan the repository | `ai-context-lint .` |
+| Check one file and its imports | `ai-context-lint . --files src/payment/PaymentService.ts` |
+| Get a machine-readable report | `ai-context-lint . --json` |
+| Enforce a token budget | `ai-context-lint . --ci --max-tokens 50000` |
 
-```bash
-ai-context-lint . --ci --max-tokens 50000
-```
+**Context amplification** is the total estimated context tokens divided by the file's
+own tokens. In the sample repository, `PaymentService.ts` starts at 71 tokens and
+reaches 338 with its imports, or **4.76×** its own size. Shared dependencies count once
+when analyzing multiple files.
 
-The command exits with code `1` when the configured token threshold is exceeded, making it suitable for CI pipelines.
-
-For example:
-
-```text
-CI check failed: 62431 tokens exceeds the maximum of 50000 tokens.
-```
-
-This allows repositories to prevent context cost from silently growing as the codebase evolves.
-
-### GitHub Actions
-
-You can run `ai-context-lint` directly in GitHub Actions:
+CI exits with status 1 if the budget is exceeded. Add this step to a GitHub Actions job
+after checkout and Node.js setup:
 
 ```yaml
 - name: Check AI context cost
   run: npx ai-context-lint . --ci --max-tokens 50000
 ```
 
-### Experimental Context Compiler
+<details>
+<summary>Report fields, findings, and export behavior</summary>
 
-Select likely task-relevant files using deterministic filename and source keyword signals:
+### Reports
 
-```bash
-ai-context-lint . --task "Add retry support to the payment client"
-ai-context-lint . --task "Add retry support to the payment client" --json
-```
-
-The compiler scores files using task intent and matches in filenames, meaningful directories,
-and source code. It selects strong matches as starting files, follows their imports, and
-counts each source file once. Interface-change tasks can also include relevant direct
-callers. `--task` cannot be combined with `--files`.
-
-Try the payment retry example from a development checkout after `npm run build`:
-
-```bash
-node dist/cli.js test-repo --task "Add retry support to the payment client"
-```
-
-`PaymentClient.ts` and `RetryPolicy.ts` score 12 and 11, clearing the starting-file
-cutoff of 10. `HttpClient.ts` scores 6 and enters the context through a direct import
-from `PaymentClient.ts`. The report counts all three files for **267 estimated source tokens**,
-including the HTTP client's 191 tokens.
-
-The **Task-specific context** section reports the unique files and tokens selected for the task.
 In JSON, these totals are in `combinedContext` (also available as `contextCompiler.context`).
 `files`, `totalBytes`, and `totalEstimatedTokens` describe the task-selected files themselves.
 The separate repository dependency diagnostics show findings and per-file import costs for
@@ -110,30 +95,27 @@ those files using the full repository graph. These costs can include files outsi
 context. JSON exposes them as `issues`, `contextAnalysis`, and `dependencyGraph`, with
 `scopes` describing each section.
 
-#### Export a Markdown task bundle
+Token estimates use the `o200k_base` tokenizer. Actual usage depends on the model.
 
-```bash
-ai-context-lint . --task "Add retry support to the payment client" --output context.md
-```
+| Code                | Meaning                                                      |
+| ------------------- | ------------------------------------------------------------ |
+| `CONTEXT_HOTSPOT`   | Transitive context is at least 3× the file's own token count |
+| `LARGE_FILE`        | A source file is at least ~10,000 tokens                     |
+| `GENERATED_FILE`    | A generated file contributes significant context             |
+| `GENERATED_CONTEXT` | Generated files are a large share of repository tokens       |
+| `NO_CODE`           | No supported source files were found                         |
 
-From a development checkout, the npm script writes to `context.md` by default.
-Pass `--output` after `--` to choose a different destination.
+### Export behavior
 
-```bash
-npm run context:bundle -- test-repo --task "Add retry support to the payment client"
-```
+Markdown files use the same paths as `combinedContext.contextFiles`, sorted and deduplicated.
+If the task has no matches, the bundle includes the task and an empty-selection message.
+Output paths are relative to the current working directory. File errors go to stderr and
+return a nonzero status. When a CI budget is set, the CLI checks it before writing the bundle.
 
-The bundle includes the task and the full source of each file in
-`combinedContext.contextFiles`, once per path in sorted order. File headings show
-repository-relative paths, and the bundle identifies compiler-selected files,
-additional dependencies, and available selection reasons. When the task has no
-matches, the bundle includes the task and an empty-selection message.
+</details>
 
-The output path is relative to your working directory. Its parent directory must
-exist, and the destination must be a new file. The CLI reports file errors on
-stderr and exits with a nonzero status. `--output` requires `--task` and can be
-used with `--json` to save Markdown while printing the usual JSON to stdout.
-With a CI token budget, the bundle is written only after the budget check passes.
+<details>
+<summary>Compiler scoring, limitations, and benchmarks</summary>
 
 #### Task intent and scoring
 
@@ -194,81 +176,12 @@ The benchmark checkout has no payment-specific test file. The regression fixture
 payment spec, a smoke test that directly imports the payment implementation, and an unrelated CLI
 test with a payment mention. The compiler includes both related tests and excludes the CLI test.
 
-## Example
+</details>
 
-```text
-AI Context Report
-────────────────────────────────────
-Repository:      test-repo
-Files analyzed:  4
-Estimated tokens: 349
-Source size:      1.4 KB
+<details>
+<summary>Architecture and supported source files</summary>
 
-Findings
-────────────────────────────────────
-⚠ [CONTEXT_HOTSPOT]
-  File: src/payment/PaymentService.ts
-  Context amplification is 4.20x. This file may require significantly more context than its own size.
-  Tokens: 349
-
-Context Analysis
-────────────────────────────────────
-src/payment/PaymentService.ts
-  Own tokens:        83
-  Dependency tokens: 266
-  Total context:     349
-  Amplification:     4.20x
-  Dependencies:      3
-  Dependency tree:
-    ├── src/payment/PaymentClient.ts
-    │   └── src/http/HttpClient.ts
-    └── src/payment/RetryPolicy.ts
-```
-
-`PaymentService.ts` is small on its own, but importing the HTTP client and retry policy multiplies the context an agent may need.
-
-## What it detects
-
-| Code                | Meaning                                                      |
-| ------------------- | ------------------------------------------------------------ |
-| `CONTEXT_HOTSPOT`   | Transitive context is at least 3× the file's own token count |
-| `LARGE_FILE`        | A source file is at least ~10,000 tokens                     |
-| `GENERATED_FILE`    | A generated file contributes significant context             |
-| `GENERATED_CONTEXT` | Generated files are a large share of repository tokens       |
-| `NO_CODE`           | No supported source files were found                         |
-
-### Token counting
-
-Token counts are calculated using the `o200k_base` tokenizer rather than a character-based approximation.
-
-This provides a more meaningful estimate of LLM context usage than `characters / 4`, while still being an approximation of the tokens an individual model may ultimately consume.
-
-## Context amplification
-
-One of the core metrics is context amplification.
-
-For a file:
-
-```text
-context amplification =
-  total transitive context tokens / file's own tokens
-```
-
-For example:
-
-```text
-PaymentService.ts
-Own tokens:        83
-Dependency tokens: 266
-Total context:     349
-Amplification:     4.20x
-```
-
-This means an agent potentially needs to reason about more than four times the file's own token count when following its dependency chain.
-
-When multiple selected files share dependencies, `ai-context-lint` deduplicates those dependencies so shared files are counted only once.
-
-## Architecture
+### Architecture
 
 ```text
 scan
@@ -290,6 +203,8 @@ report / CI
 | `tokenizer.ts`    | Calculates token counts using `o200k_base`                              |
 | `dependencies.ts` | Parses local imports into a directed dependency graph, including cycles |
 | `context.ts`      | Walks transitive dependencies and calculates combined context           |
+| `context-compiler.ts` | Scores task candidates and expands the selected context |
+| `context-bundle.ts` | Writes the selected context as Markdown |
 | `analyzer.ts`     | Emits issues for file size, generated noise, and context amplification  |
 | `reporter.ts`     | Produces the human-readable report                                      |
 | `cli.ts`          | Handles command-line options, JSON output, and CI checks                |
@@ -298,93 +213,24 @@ Supported extensions include JavaScript/TypeScript, Python, Go, Rust, Java, C/C+
 
 Common generated and dependency directories such as `node_modules`, `dist`, `build`, `coverage`, and `vendor` are ignored.
 
+</details>
+
 ## Development
 
-Clone the repository and install dependencies:
-
 ```bash
-npm install
-```
-
-Build:
-
-```bash
+npm ci
 npm run build
-```
-
-Run tests:
-
-```bash
 npm test
-```
-
-Run locally against the test repository:
-
-```bash
 npm run dev -- ./test-repo
 ```
 
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for setup and review expectations.
+
 ## Roadmap
 
-### Done
-
-* Repository scanning
-* Dependency graph analysis
-* Transitive context analysis
-* Context amplification
-* Shared dependency deduplication
-* Real `o200k_base` tokenization
-* JSON output
-* CI mode with configurable token thresholds
-* GitHub Actions CI
-* Experimental Context Compiler and Markdown task bundle export
-
-### Next
-
-* Configurable context hotspot thresholds
-* Configurable ignore rules
-* Improved TypeScript path alias and module resolution
-* Richer guidance for reducing context amplification
-* Context Profiler
-
-## The bigger idea
-
-`ai-context-lint` is the first step toward a larger workflow for AI-assisted software development.
-
-Today:
-
-```text
-AI Context Lint
-Understand the context cost.
-```
-
-Next:
-
-```text
-Context Profiler
-Understand what AI coding agents actually consume.
-```
-
-The experimental Context Compiler already builds and exports task-specific context.
-A future Context Profiler could show how agents use that context on real tasks.
-
-The goal is to move from:
-
-```text
-"Here's the entire repository. Figure it out."
-```
-
-to:
-
-```text
-"Here's the context that's actually relevant to this task."
-```
-
-## Contributing
-
-Bug reports, feature requests, and pull requests are welcome.
-
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for setup and review expectations.
+Planned work includes configurable ignore rules and hotspot thresholds, better TypeScript
+module resolution, and more guidance for reducing context amplification. A future
+Context Profiler could show which files coding agents use on real tasks.
 
 ## License
 
