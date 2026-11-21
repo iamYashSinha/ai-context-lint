@@ -4,35 +4,63 @@
 [![CI](https://github.com/iamYashSinha/ai-context-lint/actions/workflows/ci.yml/badge.svg)](https://github.com/iamYashSinha/ai-context-lint/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
-See which source files an AI coding agent may need, estimate their token cost, and
-export the context for a specific task.
+Estimate how much source context a repository or file brings into an AI coding task.
+Give `ai-context-lint` a task description and it can select a starting set of files and
+export their source to a Markdown bundle you can review and give to your coding agent.
 
 ## Quick start
 
-Requires **Node.js 22.12 or later**. Scan a repository with:
+Requires **Node.js 22.12 or later**. Run these from your repository:
 
 ```bash
 npx ai-context-lint .
+npx ai-context-lint . --task "Add retry support to the payment client" --output context.md
 ```
+
+The first command reports estimated token costs and import hotspots. The second writes
+the task, repository-relative paths, selection reasons, and full source to `context.md`.
+Choose a new file in an existing directory. Add `--json` to keep JSON on stdout while
+writing the bundle. `--task` and `--files` are mutually exclusive.
 
 For regular use, run `npm install -g ai-context-lint`, then use `ai-context-lint` directly.
 Pass a directory path in place of `.` to scan another repository.
 
-## Build context for a task
+## From task to Markdown
+
+To reproduce the payment retry example, use the repository's [sample project](https://github.com/iamYashSinha/ai-context-lint/tree/main/test-repo).
+From a checkout, run `npm ci`, then:
 
 ```bash
-ai-context-lint . --task "Add retry support to the payment client"
+npm run context:bundle -- test-repo --task "Add retry support to the payment client"
 ```
 
-The experimental Context Compiler scores files using task intent and matches in paths
-and source code. It starts from strong matches, follows their imports, and counts each
-file once. Interface-change tasks can also include relevant direct callers.
+The shortcut writes to `context.md` by default. Append `--output demo-context.md` to choose
+another file. Here's an excerpt from the generated Markdown showing one of the three files:
 
-Try the payment retry example from a checkout after `npm ci` and `npm run build`:
+````markdown
+# Task context bundle
 
-```bash
-node dist/cli.js test-repo --task "Add retry support to the payment client"
+## Task
+
+```text
+Add retry support to the payment client
 ```
+
+## Source files
+
+### ` "src/payment/RetryPolicy.ts" `
+
+- Included in the compiler's selected files.
+- Compiler signals (score 11): ` "filename: retry" `, ` "source: retry" `, ` "directory: payment" `
+
+```ts
+export class RetryPolicy {
+  async execute<T>(operation: () => Promise<T>): Promise<T> {
+    return operation();
+  }
+}
+```
+````
 
 | File | Score | Why it enters the context |
 | --- | ---: | --- |
@@ -44,22 +72,24 @@ Look for **Task-specific context** in the report. This example includes **3 file
 267 estimated source tokens**, including the HTTP client's 191 tokens. The separate
 repository diagnostics show what individual files can pull in through the full import graph.
 
-### Export to Markdown
+To see the report on its own, run `npm run build`, then:
 
 ```bash
-ai-context-lint . --task "Add retry support to the payment client" --output context.md
+node dist/cli.js test-repo --task "Add retry support to the payment client"
 ```
 
-The bundle contains the task, repository-relative paths, selection reasons, and full source.
-Choose a new file in an existing directory. Add `--json` to keep JSON on stdout while
-writing the bundle. `--task` and `--files` are mutually exclusive.
+## How it works
 
-From a development checkout, the shortcut below writes to `context.md` by default.
-Append `--output demo-context.md` to choose another file.
+1. Scan supported source files, map local imports, and estimate source tokens.
+2. When you provide a task, the experimental Context Compiler scores files using task
+   intent and matches in paths and source code. It starts from strong matches, follows
+   their imports, and counts each file once. Interface-change tasks can also include
+   relevant direct callers.
+3. Read the report or export the selected source to Markdown.
 
-```bash
-npm run context:bundle -- test-repo --task "Add retry support to the payment client"
-```
+Selection is heuristic and can miss relevant files or include unnecessary dependencies.
+Token counts estimate source size. Actual model usage depends on the model and what
+your agent sends.
 
 ## Inspect repository context
 
