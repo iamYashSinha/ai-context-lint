@@ -9,6 +9,7 @@ import { printReport } from "./reporter.js";
 import type { Report } from "./types.js";
 import { buildDependencyGraph } from "./dependencies.js";
 import { analyzeContext, analyzeCombinedContext } from "./context.js";
+import { writeContextBundle } from "./context-bundle.js";
 import { compileContext } from "./context-compiler.js";
 
 const packageJson = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8"));
@@ -23,8 +24,15 @@ program
   .option("--max-tokens <number>", "maximum allowed token count")
   .option("--files <files...>", "analyze context for specific files")
   .option("--task <description>", "compile experimental task-specific context")
+  .option("--output <path>", "write a Markdown context bundle for --task")
   .action(async (inputPath: string, options) => {
     if (options.task && options.files) throw new Error("--task and --files cannot be combined");
+    if (options.output !== undefined) {
+      if (!options.task) throw new Error("--output requires --task");
+      if (!options.output.trim() || options.output === "-") {
+        throw new Error("--output requires a file path");
+      }
+    }
     const root = path.resolve(inputPath);
     const allFiles = await scanRepository(root);
     const dependencyGraph = await buildDependencyGraph(root, allFiles);
@@ -63,6 +71,14 @@ program
       if (budgetTokens > maxTokens) {
         console.error(`CI check failed: ${budgetTokens} tokens exceeds the maximum of ${maxTokens} tokens.`);
         process.exit(1);
+      }
+    }
+    if (options.output !== undefined && contextCompiler) {
+      try {
+        await writeContextBundle(path.resolve(options.output), root, contextCompiler);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`Could not export Markdown bundle to ${JSON.stringify(options.output)}: ${message}`);
       }
     }
     if (options.json) {
