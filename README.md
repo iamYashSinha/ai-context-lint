@@ -27,7 +27,7 @@ npm install -g ai-context-lint
 ai-context-lint .
 ```
 
-Requires **Node.js 22+**.
+Requires **Node.js 22.12 or later**.
 
 ## Usage
 
