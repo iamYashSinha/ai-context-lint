@@ -34,15 +34,27 @@ function printDependencyTree(
 
 export function printReport(report: Report): void {
   console.log("");
-  console.log("AI Context Report");
+  console.log(report.contextCompiler ? "AI Context Compiler (experimental)" : "AI Context Report");
   console.log("────────────────────────────────────");
 
   console.log(`Repository:      ${path.basename(report.root)}`);
+  if (report.contextCompiler) {
+    console.log(`Task:            ${report.contextCompiler.task}`);
+    console.log("Candidate ranking");
+    for (const candidate of report.contextCompiler.candidates) {
+      console.log(`  ${candidate.score}  ${candidate.file} (${candidate.reasons.join(", ")})`);
+    }
+    console.log("Selected files");
+    for (const file of report.contextCompiler.selectedFiles) console.log(`  ${file}`);
+    const total = report.contextCompiler.context.totalTokens;
+    console.log(`Unique context:  ${total.toLocaleString()} tokens`);
+    console.log("Selection is heuristic; relevance is not guaranteed.");
+  }
   console.log(`Files analyzed:  ${report.files.length}`);
   const isFocusedReport =
   report.contextAnalysis.length !== report.files.length;
   console.log(
-    `${isFocusedReport ? "Selected tokens:" : "Estimated tokens:"} ${report.totalEstimatedTokens.toLocaleString()}`
+    `${isFocusedReport ? "Selected tokens:" : "Estimated tokens:"} ${(report.combinedContext?.totalTokens ?? report.totalEstimatedTokens).toLocaleString()}`
   );
   
   console.log(
