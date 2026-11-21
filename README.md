@@ -90,6 +90,14 @@ The compiler ranks candidate files, selects strong matches, and includes their t
 It reports selected files, relevance reasons, and unique context tokens. Unrelated upstream
 callers are not automatically included. `--task` cannot be combined with `--files`.
 
+The **Task-specific context** section reports the unique files and tokens selected for the task.
+In JSON, these totals are in `combinedContext` (also available as `contextCompiler.context`).
+`files`, `totalBytes`, and `totalEstimatedTokens` describe the task-selected files themselves.
+The separate repository dependency diagnostics show findings and per-file import costs for
+those files using the full repository graph. These costs can include files outside the task
+context. JSON exposes them as `issues`, `contextAnalysis`, and `dependencyGraph`, with
+`scopes` describing each section.
+
 **Experimental limitations:** Keyword matching cannot determine actual business impact,
 and including the complete transitive import closure can over-select dependencies.
 The result is a heuristic context estimate, not a guaranteed minimal or sufficient context.
