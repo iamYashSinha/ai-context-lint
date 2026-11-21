@@ -27,7 +27,7 @@ export async function compileContext(task: string, root: string, files: FileStat
   }
   candidates.sort((a,b) => b.score - a.score || a.file.localeCompare(b.file));
   // Strong task matches become roots; weak source-only matches do not pull in arbitrary callers.
-  const roots = candidates.filter(candidate => candidate.score >= 5).map(candidate => candidate.file);
+  const roots = candidates.filter(candidate => candidate.score >= 10).map(candidate => candidate.file);
   const selected = new Set<string>(roots);
   const imports = new Map(graph.map(node => [node.file, node.imports]));
   const stack = [...roots];
