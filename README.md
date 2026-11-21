@@ -98,6 +98,31 @@ those files using the full repository graph. These costs can include files outsi
 context. JSON exposes them as `issues`, `contextAnalysis`, and `dependencyGraph`, with
 `scopes` describing each section.
 
+#### Export a Markdown task bundle
+
+```bash
+ai-context-lint . --task "Add retry support to the payment client" --output context.md
+```
+
+From a development checkout, the npm script writes to `context.md` by default.
+Pass `--output` after `--` to choose a different destination.
+
+```bash
+npm run context:bundle -- test-repo --task "Add retry support to the payment client"
+```
+
+The bundle includes the task and the full source of each file in
+`combinedContext.contextFiles`, once per path in sorted order. File headings show
+repository-relative paths, and the bundle identifies compiler-selected files,
+additional dependencies, and available selection reasons. When the task has no
+matches, the bundle includes the task and an empty-selection message.
+
+The output path is relative to your working directory. Its parent directory must
+exist, and the destination must be a new file. The CLI reports file errors on
+stderr and exits with a nonzero status. `--output` requires `--task` and can be
+used with `--json` to save Markdown while printing the usual JSON to stdout.
+With a CI token budget, the bundle is written only after the budget check passes.
+
 #### Task intent and scoring
 
 The compiler recognizes interface changes first, then testing, bug-fix, refactor, and explanation
