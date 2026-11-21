@@ -33,15 +33,21 @@ describe("task-aware context compiler", () => {
       await rm(root, {recursive: true, force: true});
     }
   });
-  it("includes relevant direct callers for interface-change tasks, but not unrelated callers", async () => {
+  it("includes relevant direct callers without pulling in caller-only imports", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "context-interface-"));
     try {
-      const names = ["PaymentClient.ts", "PaymentController.ts", "UnrelatedController.ts", "RetryPolicy.ts"];
+      const names = [
+        "PaymentClient.ts", "PaymentController.ts", "UnrelatedController.ts",
+        "RetryPolicy.ts", "Logger.ts", "LogSink.ts", "Backoff.ts",
+      ];
       const contents = [
         "export interface PaymentClient { retryPayment(): void }",
         "import type { PaymentClient } from './PaymentClient.js'; export function handle(client: PaymentClient) { client.retryPayment(); }",
         "export class UnrelatedController {}",
         "export class RetryPolicy {}",
+        "export class Logger {}",
+        "export class LogSink {}",
+        "export class Backoff {}",
       ];
       await Promise.all(names.map((name, index) => writeFile(path.join(root, name), contents[index])));
       const files: FileStat[] = names.map(name => ({
@@ -49,16 +55,32 @@ describe("task-aware context compiler", () => {
       }));
       const graph: DependencyInfo[] = [
         { file: names[0], imports: [names[3]], importedBy: [names[1], names[2]] },
-        { file: names[1], imports: [names[0]], importedBy: [] },
-        { file: names[2], imports: [names[0]], importedBy: [] },
-        { file: names[3], imports: [], importedBy: [names[0]] },
+        { file: names[1], imports: [names[0], names[3], names[4]], importedBy: [names[2]] },
+        { file: names[2], imports: [names[0], names[1]], importedBy: [] },
+        { file: names[3], imports: [names[6]], importedBy: [names[0], names[1]] },
+        { file: names[4], imports: [names[5]], importedBy: [names[1]] },
+        { file: names[5], imports: [], importedBy: [names[4]] },
+        { file: names[6], imports: [], importedBy: [names[3]] },
       ];
-      const result = await compileContext("Change the payment client interface", root, files, graph);
-      expect(result.selectedFiles).toContain(names[0]);
-      expect(result.selectedFiles).toContain(names[1]);
-      expect(result.selectedFiles).toContain(names[3]);
-      expect(result.selectedFiles).not.toContain(names[2]);
-      expect(result.context.totalTokens).toBe(30);
+      const task = "Change the payment client interface";
+      const result = await compileContext(task, root, files, graph);
+      const expected = [names[0], names[1], names[3], names[6]];
+      expect(result.selectedFiles).toEqual(expected);
+      expect(new Set(result.context.contextFiles)).toEqual(new Set(expected));
+      expect(result.context.contextFiles).toHaveLength(expected.length);
+      expect(result.context).toMatchObject({ ownTokens: 40, dependencyTokens: 0, totalTokens: 40 });
+      expect(result.candidates.find(candidate => candidate.file === names[1])?.reasons)
+        .toContain("direct caller of: PaymentClient.ts (interface change)");
+
+      // If a root independently reaches the caller, follow its imports as usual.
+      graph[3].imports.push(names[1]);
+      graph[1].importedBy.push(names[3]);
+      const withRootPath = await compileContext(task, root, files, graph);
+      const expectedWithRootPath = names.filter(name => name !== names[2]);
+      expect(withRootPath.selectedFiles).toEqual(expectedWithRootPath);
+      expect(new Set(withRootPath.context.contextFiles)).toEqual(new Set(expectedWithRootPath));
+      expect(withRootPath.context.contextFiles).toHaveLength(expectedWithRootPath.length);
+      expect(withRootPath.context.totalTokens).toBe(60);
     } finally {
       await rm(root, {recursive: true, force: true});
     }
