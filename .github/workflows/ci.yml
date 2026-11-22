@@ -6,25 +6,143 @@ on:
   pull_request:
     branches: ["main"]
 
+permissions:
+  contents: read
+
 jobs:
   test:
+    name: Build and unit tests (Node ${{ matrix.node }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['22.12.0', '24']
 
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: ${{ matrix.node }}
           cache: npm
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --no-audit
 
       - name: Build
         run: npm run build
 
+      - name: Share compiled CLI
+        if: matrix.node == '24'
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Test
         run: npm test
+
+  smoke:
+    name: Built CLI smoke tests
+    needs: test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+
+      - run: npm ci --omit=dev --no-audit
+
+      - name: Scan the fixture and compile task context
+        shell: bash
+        run: |
+          temp_dir=$(mktemp -d)
+          trap 'rm -rf "$temp_dir"' EXIT
+          node dist/cli.js --help > "$temp_dir/help"
+          grep -F -- '--task' "$temp_dir/help"
+          node dist/cli.js test-repo --json > "$temp_dir/scan.json"
+
+          task_args=(test-repo --task "Explain PaymentService" --json)
+          node dist/cli.js "${task_args[@]}" > "$temp_dir/task.json"
+          node dist/cli.js "${task_args[@]}" --output "$temp_dir/context.md" > "$temp_dir/repeated.json"
+          cmp "$temp_dir/task.json" "$temp_dir/repeated.json"
+          test -s "$temp_dir/context.md"
+
+          node --input-type=commonjs - "$temp_dir" <<'JS'
+          const assert = require('node:assert/strict');
+          const fs = require('node:fs');
+          const dir = process.argv[2];
+          const scan = JSON.parse(fs.readFileSync(dir + '/scan.json', 'utf8'));
+          const task = JSON.parse(fs.readFileSync(dir + '/task.json', 'utf8'));
+          const service = 'src/payment/PaymentService.ts';
+          assert.ok(scan.files.some(file => file.path === service));
+          assert.ok(task.contextCompiler.selectedFiles.includes(service));
+          assert.ok(task.combinedContext.contextFiles.includes('src/http/HttpClient.ts'));
+          JS
+
+  package:
+    name: npm package integrity
+    needs: test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22.12.0'
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+
+      - name: Pack, install, and run the published binary
+        shell: bash
+        run: |
+          temp_dir=$(mktemp -d)
+          trap 'rm -rf "$temp_dir"' EXIT
+          version=$(node -p "require('./package.json').version")
+          tarball=$(npm pack --pack-destination "$temp_dir")
+
+          mkdir "$temp_dir/project"
+          printf '{"name":"package-check","private":true}\n' > "$temp_dir/project/package.json"
+          cd "$temp_dir/project"
+          npm install --no-audit --no-fund "$temp_dir/$tarball"
+          test "$(./node_modules/.bin/ai-context-lint --version)" = "$version"
+          ./node_modules/.bin/ai-context-lint "$GITHUB_WORKSPACE/test-repo" --json > "$temp_dir/report.json"
+          node --input-type=commonjs -e 'const report = require(process.argv[1]); if (!report.files.length) process.exit(1)' "$temp_dir/report.json"
+
+  audit:
+    name: Dependency audit (high)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+
+      - run: npm audit --audit-level=high
